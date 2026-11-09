@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Реєстр будинків ОСББ</title>
+<style>
+body{font:14px system-ui,sans-serif;margin:0;background:#f5f5f3;color:#222}
+header{position:sticky;top:0;background:#fff;padding:12px 16px;border-bottom:1px solid #ddd;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+h1{font-size:17px;margin:0 12px 0 0}
+button,select,input{font:inherit;padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff}
+button.on{background:#f2c94c;border-color:#d9ae2b;font-weight:600}
+input{flex:1;min-width:200px}
+#stats{padding:8px 16px;color:#555}
+table{border-collapse:collapse;width:100%;background:#fff}
+th,td{padding:6px 8px;border-bottom:1px solid #eee;text-align:left;vertical-align:top}
+th{background:#fafafa;position:sticky;top:57px;font-weight:600}
+td:nth-child(2){white-space:nowrap}td.n{text-align:right;white-space:nowrap}
+tr.co td{background:#fffbea}
+small{color:#888}
+.ed{border:0;background:none;cursor:pointer;padding:2px 6px}
+dialog{border:1px solid #ccc;border-radius:10px;padding:16px;max-width:420px;width:90%}
+dialog label{display:block;margin:6px 0 2px;font-size:12px;color:#666}
+dialog input,dialog select{width:100%;box-sizing:border-box}
+.row{display:flex;gap:8px;margin-top:14px}.row button:first-child{background:#f2c94c;border-color:#d9ae2b;font-weight:600}
+.del{margin-left:auto;color:#c00}
+</style></head><body><div id="nojs" style="max-width:420px;margin:60px auto;padding:16px;background:#fff3cd;border-radius:8px">⚠️ Сторінка не запустилась.<br>Відкрийте цей файл у браузері <b>Chrome</b> або <b>Edge</b> (не в переглядачі Telegram чи телефону) і перевірте інтернет.</div>
+<header>
+<h1>Реєстр будинків</h1>
+<span id="bld"></span>
+<select id="cat"><option value="">Усі об'єкти</option><option>Квартира</option><option>Паркінг</option><option>Нежитлове</option></select>
+<input id="q" placeholder="Пошук: номер, прізвище, телефон…">
+<button id="add">＋ Додати</button><button id="exp">⬇ Excel</button><button id="out">Вийти</button>
+</header>
+<div id="stats"></div>
+<table><thead><tr><th>Буд.</th><th>Об'єкт</th><th>Власник</th><th>Частка</th><th class="n">Площа, м²</th><th>Телефон</th><th></th></tr></thead><tbody id="tb"></tbody></table>
+<dialog id="dlg"><form id="fm" method="dialog">
+<b id="dt"></b>
+<label>Будинок</label><select name="building"><option>8</option><option>10</option><option>13</option></select>
+<label>Категорія</label><select name="category"><option>Квартира</option><option>Паркінг</option><option>Нежитлове</option></select>
+<label>Адреса (напр. «квартира 15»)</label><input name="address">
+<label>Тип обʼєкта</label><input name="object_type">
+<label>Площа обʼєкта, м²</label><input name="area" inputmode="decimal">
+<label>Власник</label><input name="owner">
+<label>Частка (1, 1/2, 28/100…)</label><input name="share">
+<label>Площа частки, м²</label><input name="share_area" inputmode="decimal">
+<label>№ відомостей</label><input name="record_no">
+<label>Реєстраційний номер обʼєкта</label><input name="reg_no">
+<label>Телефон</label><input name="phone" inputmode="tel">
+<small id="who"></small>
+<div class="row"><button value="save">Зберегти</button><button value="cancel" formnovalidate>Скасувати</button><button value="del" class="del" type="submit">Видалити</button></div>
+</form></dialog>
+<div id="login" style="max-width:320px;margin:60px auto;display:none;flex-direction:column;gap:10px">
+<b>Вхід до реєстру</b><input id="em" type="email" placeholder="Email"><input id="pw" type="password" placeholder="Пароль">
+<button id="go">Увійти</button><small id="err" style="color:#c00"></small></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+// ▼ Вставити свої дані з Supabase (Settings → API). Ключ service_role сюди НЕ вставляти!
+const SUPABASE_URL='https://saktgpdiltpzbmbubjgt.supabase.co';
+const SUPABASE_KEY='sb_publishable_jq8iuuHoESMDg2QNsRZ4CQ_VU-X0I2e';
+// ▲
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+document.getElementById('nojs').remove();
+let D=[];
+const H=['Будинок','Категорія','Адреса','Тип обʼєкта','Площа обʼєкта (кв.м)','Власник','Частка','Площа частки (кв.м)','№ відомостей','Реєстраційний номер обʼєкта','Телефон'];
+let b='',view=[];
+const objKey=r=>r[0]+'|'+(r[2]||r[3]);
+let cnt={};
+async function load(){
+  D=[];
+  for(let i=0;;i+=1000){
+    const {data,error}=await sb.from('registry').select('*').order('id').range(i,i+999);
+    if(error)throw error;
+    const f=v=>v==null?'':String(v).replace('.',',');
+    D.push(...data.map(r=>[r.building,r.category||'',r.address||'',r.object_type||'',f(r.area),r.owner||'',r.share||'',f(r.share_area),r.record_no||'',r.reg_no||'',r.phone||'',r.id,r.updated_by||'',r.updated_at||'']));
+    if(data.length<1000)break;
+  }
+  cnt={};D.forEach(r=>cnt[objKey(r)]=(cnt[objKey(r)]||0)+1);
+const esc=s=>s.replace(/[&<>"]/g,c=>'&#'+c.charCodeAt(0)+';');
+const num=s=>parseFloat(s.replace(',','.'))||0;
+document.getElementById('bld').innerHTML=['','8','10','13'].map(x=>`<button data-b="${x}">${x?'№'+x:'Усі'}</button>`).join(' ');
+function draw(){
+  const q=document.getElementById('q').value.toLowerCase().trim(),c=document.getElementById('cat').value;
+  document.querySelectorAll('#bld button').forEach(e=>e.classList.toggle('on',e.dataset.b===b));
+  view=D.filter(r=>(!b||r[0]===b)&&(!c||r[1]===c)&&(!q||[r[2],r[3],r[5],r[10]].join(' ').toLowerCase().includes(q)));
+  const objs=new Set(view.map(objKey));
+  const area=[...objs].reduce((s,k)=>s+num(view.find(r=>objKey(r)===k)[4]),0);
+  document.getElementById('stats').textContent=`Об'єктів: ${objs.size} · записів власників: ${view.length} · площа: ${area.toFixed(1)} м²`;
+  document.getElementById('tb').innerHTML=view.map(r=>`<tr${cnt[objKey(r)]>1?' class="co"':''}><td>${r[0]}</td><td>${esc(r[2]||r[3])}${r[2]&&r[3]!=='квартира'?'<br><small>'+esc(r[3])+'</small>':''}</td><td>${esc(r[5])}</td><td>${r[6]}</td><td class="n">${r[7]}${r[6]!=='1'?' <small>з '+r[4]+'</small>':''}</td><td>${r[10]?'<a href="tel:'+r[10]+'">'+r[10]+'</a>':''}</td><td><button class="ed" data-id="${r[11]}" title="${r[12]?'Змінено: '+esc(r[12])+', '+new Date(r[13]).toLocaleString('uk-UA'):'Редагувати'}">✏️</button></td></tr>`).join('');
+}
+document.getElementById('bld').onclick=e=>{if(e.target.dataset.b!==undefined){b=e.target.dataset.b;draw()}};
+document.getElementById('q').oninput=draw;document.getElementById('cat').onchange=draw;
+document.getElementById('out').onclick=()=>sb.auth.signOut().then(()=>location.reload());
+document.getElementById('exp').onclick=()=>{
+  const csv='﻿'+[H,...view.map(r=>r.slice(0,11))].map(r=>r.map(x=>'"'+String(x).replace(/"/g,'""')+'"').join(';')).join('\r\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download=`реєстр_${b?'буд'+b:'всі'}_${new Date().toISOString().slice(0,10)}.csv`;a.click();
+};
+  draw();
+}
+const F=['building','category','address','object_type','area','owner','share','share_area','record_no','reg_no','phone'];
+let editId=null;
+function openEdit(r){
+  editId=r?r[11]:null;
+  dt.textContent=r?'Редагувати запис':'Новий запис';
+  F.forEach((k,i)=>fm.elements[k].value=r?r[i]:(k==='building'?(b||'10'):k==='category'?'Квартира':k==='share'?'1':''));
+  who.textContent=r&&r[12]?'Востаннє змінив: '+r[12]+', '+new Date(r[13]).toLocaleString('uk-UA'):'';
+  fm.querySelector('.del').style.display=r?'':'none';
+  dlg.returnValue='';dlg.showModal();
+}
+document.getElementById('tb').onclick=e=>{const id=e.target.dataset.id;if(id)openEdit(D.find(r=>String(r[11])===id))};
+document.getElementById('add').onclick=()=>openEdit(null);
+dlg.onclose=async()=>{
+  const act=dlg.returnValue;if(act!=='save'&&act!=='del')return;
+  let res;
+  if(act==='del'){
+    if(!confirm('Точно видалити цей запис?'))return;
+    res=await sb.from('registry').delete().eq('id',editId);
+  }else{
+    const o={};F.forEach(k=>{let v=fm.elements[k].value.trim();if(k==='area'||k==='share_area')v=v?Number(v.replace(',','.')):null;o[k]=v});
+    if(o.area!==null&&isNaN(o.area)||o.share_area!==null&&isNaN(o.share_area)){alert('Площа має бути числом');return}
+    res=editId?await sb.from('registry').update(o).eq('id',editId):await sb.from('registry').insert(o);
+  }
+  if(res.error){alert('Не збережено: '+res.error.message);return}
+  load();
+};
+const ui=on=>{document.querySelector('header').style.display=document.querySelector('table').style.display=document.getElementById('stats').style.display=on?'':'none';document.getElementById('login').style.display=on?'none':'flex'};
+document.getElementById('go').onclick=async()=>{
+  const {error}=await sb.auth.signInWithPassword({email:em.value.trim(),password:pw.value});
+  if(error){err.textContent='Невірний email або пароль';return}
+  ui(true);load().catch(e=>alert('Помилка завантаження: '+e.message));
+};
+sb.auth.getSession().then(({data})=>{if(data.session){ui(true);load().catch(e=>alert(e.message))}else ui(false)});
+</script></body></html>

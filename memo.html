@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Памʼятка: генератор і голосування</title>
+<style>
+body{font:14px system-ui,sans-serif;margin:0;background:#f5f5f3;color:#222}
+header{position:sticky;top:0;background:#fff;padding:10px 14px;border-bottom:1px solid #ddd;display:flex;flex-wrap:wrap;gap:8px;align-items:center;z-index:1}
+h1{font-size:16px;margin:0 8px 0 0}
+button,input{font:inherit;padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff}
+button.on{background:#f2c94c;border-color:#d9ae2b;font-weight:600}
+#q{flex:1;min-width:160px}
+#chips{padding:8px 14px;display:flex;gap:6px;flex-wrap:wrap}
+table{border-collapse:collapse;width:100%;background:#fff}
+td,th{padding:6px 8px;border-bottom:1px solid #eee;text-align:left;vertical-align:middle}
+th{background:#fafafa}
+.st{white-space:nowrap;font-weight:600;cursor:pointer}
+.paid,.zbory,.diya{background:#e3f5e1;border-color:#9fd49a}
+.unpaid,.none{background:#fde4e1;border-color:#f0a59b}
+.unknown{background:#eee}
+.note{width:100%;box-sizing:border-box;border-color:#eee}
+small{color:#888}
+#login{max-width:320px;margin:60px auto;display:none;flex-direction:column;gap:10px}
+</style></head><body><div id="nojs" style="max-width:420px;margin:60px auto;padding:16px;background:#fff3cd;border-radius:8px">⚠️ Сторінка не запустилась.<br>Відкрийте цей файл у браузері <b>Chrome</b> або <b>Edge</b> (не в переглядачі Telegram чи телефону) і перевірте інтернет.</div>
+<div id="login"><b>Вхід</b><input id="em" type="email" placeholder="Email"><input id="pw" type="password" placeholder="Пароль"><button id="go">Увійти</button><small id="err" style="color:#c00"></small></div>
+<div id="app" style="display:none">
+<header>
+<h1>Буд. 10</h1>
+<button data-tab="gen">💡 Генератор</button><button data-tab="vote">🗳️ Голосування</button>
+<input id="q" placeholder="Квартира або прізвище…">
+<button id="out">Вийти</button>
+</header>
+<div id="chips"></div>
+<table><thead><tr><th>Кв.</th><th>Власник</th><th>Статус</th><th>Нотатка</th></tr></thead><tbody id="tb"></tbody></table>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const sb=supabase.createClient('https://saktgpdiltpzbmbubjgt.supabase.co','sb_publishable_jq8iuuHoESMDg2QNsRZ4CQ_VU-X0I2e');
+document.getElementById('nojs').remove();
+const S={gen:{paid:'✅ Здав',unpaid:'❌ Не здав',unknown:'❔ Невідомо'},vote:{zbory:'🟢 Збори',diya:'🔵 Дах','':'⚪ Не голосував'}};
+let M=[],owners={},tab='gen',filt=null;
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>'&#'+c.charCodeAt(0)+';');
+const aptNum=a=>a.match(/\d+/g).map(Number);
+async function all(t,sel,f){let out=[];for(let i=0;;i+=1000){let q=sb.from(t).select(sel);if(f)q=f(q);const {data,error}=await q.range(i,i+999);if(error)throw error;out.push(...data);if(data.length<1000)return out}}
+async function load(){
+  const [m,r]=await Promise.all([all('memo','*',q=>q.eq('building','10')),all('registry','address,owner',q=>q.eq('building','10').eq('category','Квартира'))]);
+  owners={};r.forEach(x=>{const a=x.address.replace('квартира ','');(owners[a]=owners[a]||[]).push(x.owner)});
+  M=m.sort((x,y)=>{const a=aptNum(x.apt),b=aptNum(y.apt);return a[0]-b[0]||(a[1]||0)-(b[1]||0)});
+  draw();
+}
+function draw(){
+  document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));
+  const cnt={};M.forEach(m=>cnt[m[tab]]=(cnt[m[tab]]||0)+1);
+  chips.innerHTML=`<button data-f="" class="${filt===null?'on':''}">Усі: ${M.length}</button>`+Object.entries(S[tab]).map(([k,v])=>`<button data-f="${k}" class="${filt===k?'on':''}">${v}: ${cnt[k]||0}</button>`).join('');
+  const q=document.getElementById('q').value.toLowerCase().trim();
+  tb.innerHTML=M.filter(m=>(filt===null||m[tab]===filt)&&(!q||m.apt===q||(owners[m.apt]||[]).join(' ').toLowerCase().includes(q))).map(m=>{
+    const det=tab==='vote'&&m.vote_detail.length?'<br><small>'+m.vote_detail.map(d=>esc(d.owner)+': За '+d.answers.filter(a=>a==='za').length+', Проти '+d.answers.filter(a=>a==='proty').length).join('; ')+'</small>':'';
+    return `<tr><td><b>${m.apt}</b></td><td>${esc((owners[m.apt]||[]).join(', '))}${det}</td><td><button class="st ${m[tab]||'none'}" data-apt="${m.apt}">${S[tab][m[tab]]}</button></td><td><input class="note" data-apt="${m.apt}" value="${esc(m.note)}" placeholder="…" title="${m.updated_by?'Змінив: '+esc(m.updated_by)+', '+new Date(m.updated_at).toLocaleString('uk-UA'):''}"></td></tr>`}).join('');
+}
+async function save(apt,patch,el){
+  const {error}=await sb.from('memo').update(patch).eq('building','10').eq('apt',apt);
+  if(error){alert('Не збережено: '+error.message);return false}
+  Object.assign(M.find(m=>m.apt===apt),patch);if(el)el.style.borderColor='#9fd49a';return true;
+}
+document.querySelector('header').onclick=e=>{if(e.target.dataset.tab){tab=e.target.dataset.tab;filt=null;draw()}};
+chips.onclick=e=>{if(e.target.dataset.f!==undefined){filt=e.target.dataset.f===''&&e.target.textContent.startsWith('Усі')?null:e.target.dataset.f;draw()}};
+q.oninput=draw;
+tb.onclick=async e=>{const apt=e.target.classList.contains('st')&&e.target.dataset.apt;if(!apt)return;
+  const keys=Object.keys(S[tab]),m=M.find(x=>x.apt===apt),next=keys[(keys.indexOf(m[tab])+1)%keys.length];
+  if(await save(apt,{[tab]:next}))draw()};
+tb.onchange=e=>{if(e.target.classList.contains('note'))save(e.target.dataset.apt,{note:e.target.value},e.target)};
+const ui=on=>{app.style.display=on?'':'none';login.style.display=on?'none':'flex'};
+go.onclick=async()=>{const {error}=await sb.auth.signInWithPassword({email:em.value.trim(),password:pw.value});if(error){err.textContent='Невірний email або пароль';return}ui(true);load().catch(e=>alert(e.message))};
+out.onclick=()=>sb.auth.signOut().then(()=>location.reload());
+sb.auth.getSession().then(({data})=>{if(data.session){ui(true);load().catch(e=>alert(e.message))}else ui(false)});
+</script></body></html>
